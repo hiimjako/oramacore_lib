@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use thiserror::Error;
@@ -18,7 +19,7 @@ pub enum CollectionValuesWriterError {
 }
 
 pub struct CollectionValuesWriter {
-    values: HashMap<String, String>,
+    values: Arc<HashMap<String, String>>,
     has_uncommitted_changes: bool,
 }
 
@@ -26,7 +27,7 @@ impl CollectionValuesWriter {
     /// Creates an empty collection values writer (for new collections).
     pub fn empty() -> Self {
         Self {
-            values: HashMap::new(),
+            values: Arc::new(HashMap::new()),
             has_uncommitted_changes: false,
         }
     }
@@ -50,7 +51,7 @@ impl CollectionValuesWriter {
         info!("Loaded {} collection values from disk", values.len());
 
         Ok(Self {
-            values,
+            values: Arc::new(values),
             has_uncommitted_changes: false,
         })
     }
@@ -79,7 +80,7 @@ impl CollectionValuesWriter {
         }
 
         let is_update = self.values.contains_key(&key);
-        self.values.insert(key.clone(), value);
+        Arc::make_mut(&mut self.values).insert(key.clone(), value);
         self.has_uncommitted_changes = true;
 
         info!(
@@ -98,7 +99,7 @@ impl CollectionValuesWriter {
 
     /// Deletes a collection value by key. Returns true if the key existed.
     pub fn delete(&mut self, key: &str) -> bool {
-        let removed = self.values.remove(key).is_some();
+        let removed = Arc::make_mut(&mut self.values).remove(key).is_some();
         if removed {
             self.has_uncommitted_changes = true;
             info!("Collection value deleted: '{}'", key);
@@ -106,9 +107,9 @@ impl CollectionValuesWriter {
         removed
     }
 
-    /// Returns all collection values.
-    pub fn list(&self) -> &HashMap<String, String> {
-        &self.values
+    /// Returns all collection values as a shared reference.
+    pub fn list(&self) -> Arc<HashMap<String, String>> {
+        Arc::clone(&self.values)
     }
 
     /// Returns the number of stored values.
@@ -130,7 +131,7 @@ impl CollectionValuesWriter {
         create_if_not_exists(&data_dir)?;
 
         let dump = CollectionValuesDump {
-            values: self.values.clone(),
+            values: (*self.values).clone(),
         };
 
         BufferedFile::create_or_overwrite(data_dir.join("collection_values.json"))

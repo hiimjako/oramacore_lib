@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use thiserror::Error;
@@ -18,7 +19,7 @@ pub enum CollectionValuesReaderError {
 }
 
 pub struct CollectionValuesReader {
-    values: HashMap<String, String>,
+    values: Arc<HashMap<String, String>>,
     has_uncommitted_changes: bool,
 }
 
@@ -26,7 +27,7 @@ impl CollectionValuesReader {
     /// Creates an empty collection values reader (for new collections).
     pub fn empty() -> Self {
         Self {
-            values: HashMap::new(),
+            values: Arc::new(HashMap::new()),
             has_uncommitted_changes: false,
         }
     }
@@ -53,7 +54,7 @@ impl CollectionValuesReader {
         );
 
         Ok(Self {
-            values,
+            values: Arc::new(values),
             has_uncommitted_changes: false,
         })
     }
@@ -63,10 +64,10 @@ impl CollectionValuesReader {
     pub fn update(&mut self, op: CollectionValueOperation) {
         match op {
             CollectionValueOperation::Set { key, value } => {
-                self.values.insert(key, value);
+                Arc::make_mut(&mut self.values).insert(key, value);
             }
             CollectionValueOperation::Delete { key } => {
-                self.values.remove(&key);
+                Arc::make_mut(&mut self.values).remove(&key);
             }
         }
         self.has_uncommitted_changes = true;
@@ -81,7 +82,7 @@ impl CollectionValuesReader {
         create_if_not_exists(&data_dir)?;
 
         let dump = CollectionValuesDump {
-            values: self.values.clone(),
+            values: (*self.values).clone(),
         };
 
         BufferedFile::create_or_overwrite(data_dir.join("collection_values.json"))
@@ -99,9 +100,9 @@ impl CollectionValuesReader {
         self.values.get(key).cloned()
     }
 
-    /// Returns all collection values.
-    pub fn list(&self) -> HashMap<String, String> {
-        self.values.clone()
+    /// Returns all collection values as a shared reference.
+    pub fn list(&self) -> Arc<HashMap<String, String>> {
+        Arc::clone(&self.values)
     }
 
     /// Returns the number of stored values.
